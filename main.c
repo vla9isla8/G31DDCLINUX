@@ -115,42 +115,45 @@ int main(int argc, char **argv){
 		SetCallbacks=(G31DDC_SET_CALLBACKS)dlsym(API,"SetCallbacks");
 		GetDeviceInfo=(G31DDC_GET_DEVICE_INFO)dlsym(API,"GetDeviceInfo");
 		GetDeviceList=(G31DDC_GET_DEVICE_LIST)dlsym(API,"GetDeviceList");
-		uint32_t Count,i,ItemSize;
-		
-		
-		if(Count	=	GetDeviceList(NULL,0)){
-		
-			List	=	(G31DDC_DEVICE_INFO*)malloc(Count*sizeof(G31DDC_DEVICE_INFO));
-			Count	=	GetDeviceList(List,Count*sizeof(G31DDC_DEVICE_INFO));
-			printf("Available devices: %d\n",Count);
+		uint32_t Count,i;
+		if(GetDeviceList(NULL,0)>=0){
 			
-			for(i = 0;i < Count;i++){
-				printf("Device %8s \n",List[i].SerialNumber);
-			}
-			hDevice=OpenDevice(List[0].SerialNumber);
-			if (hDevice) {
-				G31DDC_DEVICE_INFO info;
-				G3XDDC_DDC_INFO info1={0},info2={0};
-				GetDeviceInfo(hDevice,&info,sizeof(info));
-				printf("Device %8s opened, handle=%d\n",info.SerialNumber,hDevice);	
-				printf("Interface: %d\n",info.InterfaceType);
-				printf("Channel Count: %u\n",info.ChannelCount);
-				printf("DDC Type Count: %u\n",info.DDCTypeCount);
-				getchar();
+			if(Count	=	GetDeviceList(NULL,0)){
+			
+				List	=	(G31DDC_DEVICE_INFO*)malloc(Count*sizeof(G31DDC_DEVICE_INFO));
+				Count	=	GetDeviceList(List,Count*sizeof(G31DDC_DEVICE_INFO));
+				printf("Available devices: %d\n",Count);
 				
-			}else {
-				printf("Failed to open device. Error code=%d\n",errno);
-			}
-		}
-		puts("Closing the API");
+				for(i = 0;i < Count;i++){
+					printf("Device %8s \n",List[i].SerialNumber);
+				}
+				hDevice=OpenDevice(List[0].SerialNumber);
+				if (hDevice) {
+					G31DDC_DEVICE_INFO info;
+					G3XDDC_DDC_INFO info1={0},info2={0};
+					GetDeviceInfo(hDevice,&info,sizeof(info));
+					printf("Device %8s opened, handle=%d\n",info.SerialNumber,hDevice);	
+					printf("Interface: %d\n",info.InterfaceType);
+					printf("Channel Count: %u\n",info.ChannelCount);
+					printf("DDC Type Count: %u\n",info.DDCTypeCount);
+					
+					SetCallbacks(hDevice,&Callbacks,(uintptr_t)NULL);
+					
+					getchar();
+					
+				}else
+					printf("Failed to open device. Error code=%d\n",errno);
+			}else
+				puts("Devices not found");
+		}else
+			printf("Error get list of diveces: error number - %d",errno);
 		dlclose(API);
-    }
-	
+    }else
+		printf("Can't open API: error number - %d",errno);
 	return 0;
 }
 double window[FFT_SIZE];
-void _fft(cplx buf[], cplx out[],int step)
-{
+void _fft(cplx buf[], cplx out[],int step){
 int i;
 if (step<FFT_SIZE) {
 	_fft(out,buf,step*2);
@@ -163,16 +166,14 @@ if (step<FFT_SIZE) {
 		}
 	}
 }
-void fft(cplx buf[],bool copyback)
-{
+void fft(cplx buf[],bool copyback){
 int i;
 cplx out[FFT_SIZE];
 for (i=0;i<FFT_SIZE;i++) out[i] = buf[i]*window[i];
 _fft(buf,out,1);
 if (copyback) for (i=0;i<FFT_SIZE;i++) buf[i]=out[i];
 }
-void Translate(cplx fftbuff[],char *outbuff,bool invert,int *min,int *max)
-{
+void Translate(cplx fftbuff[],char *outbuff,bool invert,int *min,int *max){
 double maxdB=-100000,mindB=0;
 int i;
 for (i=0;i<FFT_SIZE;i++) {
