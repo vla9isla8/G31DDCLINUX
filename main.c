@@ -71,7 +71,7 @@ int main(int argc, char **argv){
 	G31DDC_CALLBACKS Callbacks;
 	G31DDC_GET_DEVICE_LIST GetDeviceList;
 	G31DDC_DEVICE_INFO *List;
-
+	
 	//Callbacks.IFCallback=IFCallback;
 	Callbacks.DDC1StreamCallback=DDC1StreamCallback;
 	//Callbacks.DDC1PlaybackStreamCallback=DDC1PlaybackStreamCallback;
@@ -79,7 +79,7 @@ int main(int argc, char **argv){
 	//Callbacks.DDC2PreprocessedStreamCallback=DDC2PreprocessedStreamCallback;
 	//Callbacks.AudioStreamCallback=AudioStreamCallback;
 	//Callbacks.AudioPlaybackStreamCallback=AudioPlaybackStreamCallback;
-
+	
 	int32_t hDevice=0;
 	void *API;
 	int freq = 10000000,i;
@@ -115,13 +115,18 @@ int main(int argc, char **argv){
 		SetCallbacks=(G31DDC_SET_CALLBACKS)dlsym(API,"SetCallbacks");
 		GetDeviceInfo=(G31DDC_GET_DEVICE_INFO)dlsym(API,"GetDeviceInfo");
 		GetDeviceList=(G31DDC_GET_DEVICE_LIST)dlsym(API,"GetDeviceList");
-		uint32_t Count,i;
-		if(GetDeviceList(NULL,0)>=0){
-			
-			if(Count	=	GetDeviceList(NULL,0)){
-			
+		int Count,i;
+		Count	=	GetDeviceList(NULL,0);
+		switch (Count){
+			case -1:
+				printf("Error get list of diveces: error number - %d\n",errno);
+			break;
+			case 0:
+				printf("Devices not found\n");
+			break;
+			default:
 				List	=	(G31DDC_DEVICE_INFO*)malloc(Count*sizeof(G31DDC_DEVICE_INFO));
-				Count	=	GetDeviceList(List,Count*sizeof(G31DDC_DEVICE_INFO));
+				Count	=	GetDeviceList(List,Count*sizeof(*List));
 				printf("Available devices: %d\n",Count);
 				
 				for(i = 0;i < Count;i++){
@@ -133,67 +138,63 @@ int main(int argc, char **argv){
 					G3XDDC_DDC_INFO info1={0},info2={0};
 					GetDeviceInfo(hDevice,&info,sizeof(info));
 					printf("Device %8s opened, handle=%d\n",info.SerialNumber,hDevice);	
-					printf("Interface: %d\n",info.InterfaceType);
-					printf("Channel Count: %u\n",info.ChannelCount);
-					printf("DDC Type Count: %u\n",info.DDCTypeCount);
-					
+					printf("Interface: %d\n",				info.InterfaceType);
+					printf("Channel Count: %u\n",			info.ChannelCount);
+					printf("DDC Type Count: %u\n",			info.DDCTypeCount);			
 					SetCallbacks(hDevice,&Callbacks,(uintptr_t)NULL);
-					
-					getchar();
-					
-				}else
-					printf("Failed to open device. Error code=%d\n",errno);
-			}else
-				puts("Devices not found");
-		}else
-			printf("Error get list of diveces: error number - %d",errno);
+					SetPower(hDevice,1);
+					StartIF(hDevice,300);
+					StartDDC1(hDevice,12);
+					StartDDC2(hDevice,1,1024);
+					getchar();	
+				}else printf("Failed to open device. Error code=%d\n",errno);
+			break;
+		}
 		dlclose(API);
-    }else
-		printf("Can't open API: error number - %d",errno);
+    }else printf("Can't open API: error number - %d",errno);
 	return 0;
 }
 double window[FFT_SIZE];
 void _fft(cplx buf[], cplx out[],int step){
-int i;
-if (step<FFT_SIZE) {
-	_fft(out,buf,step*2);
-	_fft(out+step,buf+step,step*2);
-
-	for (i=0;i<FFT_SIZE;i+=2*step) {
-		cplx t=cexp(-1*I*M_PI*i/FFT_SIZE)*out[i+step];
-		buf[i/2]=out[i]+t;
-		buf[(i+FFT_SIZE)/2]=out[i]-t;
+	int i;
+	if (step < FFT_SIZE) {
+		_fft(out,buf,step*2);
+		_fft(out+step,buf+step,step*2);
+		for (i=0;i<FFT_SIZE;i+=2*step) {
+			cplx t=cexp(-1*I*M_PI*i/FFT_SIZE)*out[i+step];
+			buf[i/2]=out[i]+t;
+			buf[(i+FFT_SIZE)/2]=out[i]-t;
 		}
 	}
 }
 void fft(cplx buf[],bool copyback){
-int i;
-cplx out[FFT_SIZE];
-for (i=0;i<FFT_SIZE;i++) out[i] = buf[i]*window[i];
-_fft(buf,out,1);
-if (copyback) for (i=0;i<FFT_SIZE;i++) buf[i]=out[i];
+	int i;
+	cplx out[FFT_SIZE];
+	for (i=0;i<FFT_SIZE;i++) out[i] = buf[i]*window[i];
+	_fft(buf,out,1);
+	if (copyback) for (i=0;i<FFT_SIZE;i++) buf[i]=out[i];
 }
 void Translate(cplx fftbuff[],char *outbuff,bool invert,int *min,int *max){
-double maxdB=-100000,mindB=0;
-int i;
-for (i=0;i<FFT_SIZE;i++) {
-	double a=10*log10(creal(fftbuff[i])*creal(fftbuff[i])+cimag(fftbuff[i])*cimag(fftbuff[i])+1e-20);
-	fftbuff[i]=a;
-	if (a>maxdB) maxdB=a;
-	if (a<mindB) mindB=a;
-	}
-maxdB-=mindB;
-if (invert) for (i=0;i<FFT_SIZE/2;i++) {
-	unsigned int index=(unsigned int)((DB_PRECISION-1)*((creal(fftbuff[i])-mindB)/maxdB));
-	outbuff[6*(FFT_SIZE/2-1-i)+3]=dB_Char[index];
-	index=(unsigned int)((DB_PRECISION-1)*((creal(fftbuff[FFT_SIZE/2+i])-mindB)/maxdB));
-	outbuff[6*(FFT_SIZE-1-i)+3]=dB_Char[index];
-	}
-else for (i=0;i<FFT_SIZE;i++) {
-	unsigned int index=(unsigned int)((DB_PRECISION-1)*((creal(fftbuff[i])-mindB)/maxdB));
-	if (index>=DB_PRECISION) index=DB_PRECISION-1;
-	outbuff[6*i+3]=dB_Char[index];
-	}
-*min=(int)mindB;
-*max=(int)maxdB;
+	double maxdB=-100000,mindB=0;
+	int i;
+	for (i=0;i<FFT_SIZE;i++) {
+		double a=10*log10(creal(fftbuff[i])*creal(fftbuff[i])+cimag(fftbuff[i])*cimag(fftbuff[i])+1e-20);
+		fftbuff[i]=a;
+		if (a>maxdB) maxdB=a;
+		if (a<mindB) mindB=a;
+		}
+	maxdB-=mindB;
+	if (invert) for (i=0;i<FFT_SIZE/2;i++) {
+		unsigned int index=(unsigned int)((DB_PRECISION-1)*((creal(fftbuff[i])-mindB)/maxdB));
+		outbuff[6*(FFT_SIZE/2-1-i)+3]=dB_Char[index];
+		index=(unsigned int)((DB_PRECISION-1)*((creal(fftbuff[FFT_SIZE/2+i])-mindB)/maxdB));
+		outbuff[6*(FFT_SIZE-1-i)+3]=dB_Char[index];
+		}
+	else for (i=0;i<FFT_SIZE;i++) {
+		unsigned int index=(unsigned int)((DB_PRECISION-1)*((creal(fftbuff[i])-mindB)/maxdB));
+		if (index>=DB_PRECISION) index=DB_PRECISION-1;
+		outbuff[6*i+3]=dB_Char[index];
+		}
+	*min=(int)mindB;
+	*max=(int)maxdB;
 }
