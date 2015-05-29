@@ -7,12 +7,11 @@
 #include <pthread.h>
 #include <complex.h>
 #include <string.h>
-#include <curses.h>			// requires curses library
+#include <curses.h>         	// requires curses library
 #include "g31ddcapi.h"
 #include <time.h>
-//#include <pulse/simple.h>	// requires pulse library
+//#include <pulse/simple.h>		// requires pulse library
 //#include <pulse/error.h>
-
 // FFT stuff
 typedef double complex cplx;
 
@@ -20,28 +19,29 @@ typedef double complex cplx;
 unsigned long long int TotalAudio=0,TotalDDC1=0,TotalDDC2=0;
 unsigned long long int StartTime;
 
-
-#define FFT_SIZE 64
-cplx DDC1_FFT_Buff[FFT_SIZE];
-char DDC1_FFT_Out[6*FFT_SIZE+1];
-int MinD1=0,MaxD1=0,MinD2=0,MaxD2=0,MinA=0,MaxA=0,MinI=0,MaxI=0;
+#define NOC 1024
+#define FFT_SIZE 512
+cplx DDC2_FFT_Buff[FFT_SIZE];
+char DDC2_FFT_Out[6*FFT_SIZE+1];
+int MinD2=0,MaxD2=0;
 #define DB_PRECISION 8
 char dB_Char[DB_PRECISION]={'0','4','5','1','2','6','3','7'};
 
 char BufferIndexArray[4]={'/','-','\\','|'};
 
-int DDC1_BufferIndex=0;
+int DDC2_BufferIndex=0;
 
 void fft(cplx buf[],bool copyback);
 void Translate(cplx fftbuff[],char *outbuff,bool invert,int *min,int *max);
-
-void DDC1StreamCallback(const void *Buffer,uint32_t NumberOfSamples,uint32_t BitsPerSample,uintptr_t UserData) {
+void DDC2StreamCallback(uint32_t Channel,const float *Buffer,uint32_t NumberOfSamples,uintptr_t UserData) {
 	int i;
-	DDC1_BufferIndex=(DDC1_BufferIndex+1)&3;
-	TotalDDC1+=NumberOfSamples;
-	for (i=0;i<FFT_SIZE;i++) DDC1_FFT_Buff[i]=(double)((int*)Buffer)[i]/3e9+I*((double)((int*)Buffer)[i+1]/3e9);
-	fft(DDC1_FFT_Buff,true);
-	Translate(DDC1_FFT_Buff,DDC1_FFT_Out,true,&MinD1,&MaxD1);
+	//DDC2_BufferIndex=(DDC2_BufferIndex+1)&3;
+	//TotalDDC2+=NumberOfSamples;
+	for (i=0;i<NOC;i++) 
+	DDC2_FFT_Buff[i/2]=Buffer[i]+I*(Buffer[++i]);
+	//fft(DDC2_FFT_Buff,true);
+	Translate(DDC2_FFT_Buff,DDC2_FFT_Out,true,&MinD2,&MaxD2);
+	printf("SL: %d",MaxD2);
 }
 
 int main(int argc, char **argv){
@@ -59,6 +59,8 @@ int main(int argc, char **argv){
 	G31DDC_STOP_AUDIO StopAudio;
 	G31DDC_SET_DDC1_FREQUENCY SetDDC1Frequency;
 	G31DDC_SET_DDC2_FREQUENCY SetDDC2Frequency;
+	G31DDC_GET_DDC1_FREQUENCY GetDDC1Frequency;
+	G31DDC_GET_DDC2_FREQUENCY GetDDC2Frequency;
 	G31DDC_START_DDC1_PLAYBACK StartDDC1Playback;
 	G31DDC_GET_DDC1 GetDDC1;
 	G31DDC_GET_DDC2 GetDDC2;
@@ -73,7 +75,7 @@ int main(int argc, char **argv){
 	G31DDC_DEVICE_INFO *List;
 	
 	//Callbacks.IFCallback=IFCallback;
-	Callbacks.DDC1StreamCallback=DDC1StreamCallback;
+	//Callbacks.DDC1StreamCallback=DDC1StreamCallback;
 	//Callbacks.DDC1PlaybackStreamCallback=DDC1PlaybackStreamCallback;
 	//Callbacks.DDC2StreamCallback=DDC2StreamCallback;
 	//Callbacks.DDC2PreprocessedStreamCallback=DDC2PreprocessedStreamCallback;
@@ -82,11 +84,12 @@ int main(int argc, char **argv){
 	
 	int32_t hDevice=0;
 	void *API;
-	int freq = 10000000,i;
+	struct timespec tt;
+	int freq = 10000000,freq2=0,i;
 	for(i=0; i<argc; i++){
 		if(!strcmp(argv[i],"-f") && argc >=i+2){
 			freq = strtol(argv[i+1],0,10);
-			printf("Частота установлена %d на Гц\n",freq);
+			//printf("Частота установлена %d на Гц\n",freq);
 		}
 	}
 	API=dlopen("libg31ddcapi.so",RTLD_LAZY);
@@ -107,6 +110,8 @@ int main(int argc, char **argv){
 		StopDDC2=(G31DDC_STOP_DDC2)dlsym(API,"StopDDC2");
 		SetDDC2Frequency=(G31DDC_SET_DDC2_FREQUENCY)dlsym(API,"SetDDC2Frequency");
 		SetDDC1Frequency=(G31DDC_SET_DDC1_FREQUENCY)dlsym(API,"SetDDC1Frequency");
+		GetDDC1Frequency=(G31DDC_GET_DDC1_FREQUENCY)dlsym(API,"GetDDC1Frequency");
+		GetDDC2Frequency=(G31DDC_GET_DDC2_FREQUENCY)dlsym(API,"GetDDC2Frequency");
 		StartDDC1Playback=(G31DDC_START_DDC1_PLAYBACK)dlsym(API,"StartDDC1Playback");
 		SetDemodulatorFilterBandwidth=(G31DDC_SET_DEMODULATOR_FILTER_BANDWIDTH)dlsym(API,"SetDemodulatorFilterBandwidth");
 		SetDemodulatorMode=(G31DDC_SET_DEMODULATOR_MODE)dlsym(API,"SetDemodulatorMode");
@@ -137,16 +142,92 @@ int main(int argc, char **argv){
 					G31DDC_DEVICE_INFO info;
 					G3XDDC_DDC_INFO info1={0},info2={0};
 					GetDeviceInfo(hDevice,&info,sizeof(info));
+					puts("-----------------------------------");
+					puts("-----------------------------------");
 					printf("Device %8s opened, handle=%d\n",info.SerialNumber,hDevice);	
 					printf("Interface: %d\n",				info.InterfaceType);
 					printf("Channel Count: %u\n",			info.ChannelCount);
 					printf("DDC Type Count: %u\n",			info.DDCTypeCount);			
+					puts("-----------------------------------");
+					puts("-----------------------------------");
 					SetCallbacks(hDevice,&Callbacks,(uintptr_t)NULL);
-					SetPower(hDevice,1);
-					StartIF(hDevice,300);
-					StartDDC1(hDevice,12);
-					StartDDC2(hDevice,1,1024);
-					getchar();	
+					printf("Starting up device... ");
+					if(!SetPower(hDevice,1)){
+						printf("Error starting device. Error number = %d\n",errno);
+						return 0;
+					}
+					puts("Success.\n");
+					printf("Starting up IF-sender... ");
+					if(!StartIF(hDevice,300)){
+						printf("Error starting up IF-sender. Error number = %d\n",errno);
+						return 0;
+					}
+					puts("Success.\n");
+					printf("Setting up DDC type... ");
+					if(!SetDDC1(hDevice,12)){
+						printf("Error of setting DDC type. Error number = %d\n",errno);
+						return 0;
+					}
+					puts("Success.\n");
+					printf("Starting up DDC1... ");
+					if(!StartDDC1(hDevice,NOC)){
+						printf("Error starting up DDC. Error number = %d\n",errno);
+						return 0;
+					}
+					puts("Success.\n");
+					printf("Setting up frequency for DDC1... ");
+					if(!SetDDC1Frequency(hDevice,freq)){
+						printf("Error of setting frequency of DDC1. Error number = %d\n",errno);
+						return 0;
+					}
+					int setFreq;
+					if(!GetDDC1Frequency(hDevice,&setFreq)){
+						printf("Error of getting frequency of DDC1. Error number = %d\n",errno);
+						return 0;
+					}
+					printf("DDC1 frequency was set %dHz\n\n",setFreq);
+					clock_gettime(CLOCK_REALTIME,&tt);
+					StartTime=tt.tv_sec;
+					StartTime*=1000000000;
+					StartTime+=tt.tv_nsec;
+					
+					printf("Starting up DDC2... ");
+					if(!StartDDC2(hDevice,0,NOC)){
+						printf("Error starting up DDC2. Error number = %d\n",errno);
+						return 0;
+					}
+					puts("Success.\n");
+					printf("Setting up frequency of DDC2... ");
+					if(SetDDC2Frequency(hDevice,0,freq2)==0){
+						printf("Error of setting frequency of DDC2. Error number = %d\n",errno);
+						return 0;
+					}
+					int setFreq2;
+					if(!GetDDC2Frequency(hDevice,0,&setFreq2)){
+						printf("Error of getting frequency of DDC2. Error number = %d\n",errno);
+						return 0;
+					}
+					printf("DDC2 frequency was set %dHz\n\n",setFreq2);
+					while(1){
+						
+					}
+					clock_gettime(CLOCK_REALTIME,&tt);
+					unsigned long long int t=tt.tv_sec;
+					t*=1000000000;
+					t+=tt.tv_nsec;
+					t-=StartTime;
+					t/=1000000;
+					puts("Stopping IF");
+					StopIF(hDevice);
+					puts("Stopping Audio");
+					StopAudio(hDevice,0);
+					puts("Stopping DDC2");
+					StopDDC2(hDevice,0);
+					puts("Stopping DDC1");
+					StopDDC1(hDevice);
+					puts("Closing the device");
+					CloseDevice(hDevice);
+					puts("Device closed");		
 				}else printf("Failed to open device. Error code=%d\n",errno);
 			break;
 		}
