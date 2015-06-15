@@ -19,8 +19,8 @@ typedef double complex cplx;
 unsigned long long int TotalAudio=0,TotalDDC1=0,TotalDDC2=0;
 unsigned long long int StartTime;
 
-#define NOC 1024
-#define FFT_SIZE 512
+#define NOC 1024*8
+#define FFT_SIZE NOC/2
 cplx DDC2_FFT_Buff[FFT_SIZE];
 char DDC2_FFT_Out[6*FFT_SIZE+1];
 int MinD2=0,MaxD2=0;
@@ -35,13 +35,13 @@ void fft(cplx buf[],bool copyback);
 void Translate(cplx fftbuff[],char *outbuff,bool invert,int *min,int *max);
 void DDC2StreamCallback(uint32_t Channel,const float *Buffer,uint32_t NumberOfSamples,uintptr_t UserData) {
 	int i;
-	//DDC2_BufferIndex=(DDC2_BufferIndex+1)&3;
+	DDC2_BufferIndex=(DDC2_BufferIndex+1)&3;
 	//TotalDDC2+=NumberOfSamples;
 	for (i=0;i<NOC;i++) 
 	DDC2_FFT_Buff[i/2]=Buffer[i]+I*(Buffer[++i]);
-	//fft(DDC2_FFT_Buff,true);
+	fft(DDC2_FFT_Buff,true);
 	Translate(DDC2_FFT_Buff,DDC2_FFT_Out,true,&MinD2,&MaxD2);
-	printf("SL: %d",MaxD2);
+	//printf("SL: %d\n",MaxD2);
 }
 
 int main(int argc, char **argv){
@@ -73,14 +73,17 @@ int main(int argc, char **argv){
 	G31DDC_CALLBACKS Callbacks;
 	G31DDC_GET_DEVICE_LIST GetDeviceList;
 	G31DDC_DEVICE_INFO *List;
-	
-	//Callbacks.IFCallback=IFCallback;
-	//Callbacks.DDC1StreamCallback=DDC1StreamCallback;
-	//Callbacks.DDC1PlaybackStreamCallback=DDC1PlaybackStreamCallback;
-	//Callbacks.DDC2StreamCallback=DDC2StreamCallback;
-	//Callbacks.DDC2PreprocessedStreamCallback=DDC2PreprocessedStreamCallback;
-	//Callbacks.AudioStreamCallback=AudioStreamCallback;
-	//Callbacks.AudioPlaybackStreamCallback=AudioPlaybackStreamCallback;
+	uint32_t ddc1_type;
+	G3XDDC_DDC_INFO ddc1_info;
+	uint32_t ddc2_type;
+	G3XDDC_DDC_INFO ddc2_info;
+	Callbacks.IFCallback=NULL;
+	Callbacks.DDC1StreamCallback=NULL;
+	Callbacks.DDC1PlaybackStreamCallback=NULL;
+	Callbacks.DDC2StreamCallback=DDC2StreamCallback;
+	Callbacks.DDC2PreprocessedStreamCallback=NULL;
+	Callbacks.AudioStreamCallback=NULL;
+	Callbacks.AudioPlaybackStreamCallback=NULL;
 	
 	int32_t hDevice=0;
 	void *API;
@@ -151,30 +154,48 @@ int main(int argc, char **argv){
 					puts("-----------------------------------");
 					puts("-----------------------------------");
 					SetCallbacks(hDevice,&Callbacks,(uintptr_t)NULL);
+					
 					printf("Starting up device... ");
 					if(!SetPower(hDevice,1)){
 						printf("Error starting device. Error number = %d\n",errno);
 						return 0;
 					}
 					puts("Success.\n");
+					
 					printf("Starting up IF-sender... ");
 					if(!StartIF(hDevice,300)){
 						printf("Error starting up IF-sender. Error number = %d\n",errno);
 						return 0;
 					}
 					puts("Success.\n");
-					printf("Setting up DDC type... ");
+					
+					printf("Getting DDC1 type... ");
+					if(!GetDDC1(hDevice,&ddc1_type,&ddc1_info)){
+						printf("Error of setting DDC type. Error number = %d\n",errno);
+						return 0;
+					}
+					printf("Success.\nType of DDC1: %d\nDDC1 info:\n\tSample Rate: %d\n\tBandwidth: %d\n\tBits Per Sample %d\n",ddc1_type,ddc1_info.SampleRate,ddc1_info.Bandwidth,ddc1_info.BitsPerSample);
+					
+					printf("Setting up DDC1 type... ");
 					if(!SetDDC1(hDevice,12)){
 						printf("Error of setting DDC type. Error number = %d\n",errno);
 						return 0;
 					}
 					puts("Success.\n");
+					
+					printf("Getting DDC1 type... ");
+					if(!GetDDC1(hDevice,&ddc1_type,&ddc1_info)){
+						printf("Error of setting DDC type. Error number = %d\n",errno);
+						return 0;
+					}
+
 					printf("Starting up DDC1... ");
 					if(!StartDDC1(hDevice,NOC)){
 						printf("Error starting up DDC. Error number = %d\n",errno);
 						return 0;
 					}
 					puts("Success.\n");
+					
 					printf("Setting up frequency for DDC1... ");
 					if(!SetDDC1Frequency(hDevice,freq)){
 						printf("Error of setting frequency of DDC1. Error number = %d\n",errno);
@@ -186,6 +207,14 @@ int main(int argc, char **argv){
 						return 0;
 					}
 					printf("DDC1 frequency was set %dHz\n\n",setFreq);
+					
+					printf("Getting DDC2 type... ");
+					if(!GetDDC1(hDevice,&ddc2_type,&ddc2_info)){
+						printf("Error of пetting DDC2 type. Error number = %d\n",errno);
+						return 0;
+					}
+
+					
 					clock_gettime(CLOCK_REALTIME,&tt);
 					StartTime=tt.tv_sec;
 					StartTime*=1000000000;
@@ -197,6 +226,7 @@ int main(int argc, char **argv){
 						return 0;
 					}
 					puts("Success.\n");
+					
 					printf("Setting up frequency of DDC2... ");
 					if(SetDDC2Frequency(hDevice,0,freq2)==0){
 						printf("Error of setting frequency of DDC2. Error number = %d\n",errno);
@@ -208,19 +238,32 @@ int main(int argc, char **argv){
 						return 0;
 					}
 					printf("DDC2 frequency was set %dHz\n\n",setFreq2);
-					while(1){
+					//SetDemodulatorMode(hDevice,0,G3XDDC_MODE_CW);
+					//SetDemodulatorFilterBandwidth(hDevice,0,25000);
+					//SetAGC(hDevice,0,TRUE);
+					//SetAGCParams(hDevice,0,0.1,0.1,-20);
+					unsigned long int t = 0;
+					
+					getchar();
+					printf("\E[H\E[2J");
+					printf("\E[H\E[2J");
+					WINDOW *w=initscr();
+					cbreak();
+					noecho();
+					nodelay(w,TRUE);
 						
-					}
-					clock_gettime(CLOCK_REALTIME,&tt);
-					unsigned long long int t=tt.tv_sec;
-					t*=1000000000;
-					t+=tt.tv_nsec;
-					t-=StartTime;
-					t/=1000000;
+					bool end=false;
+					do {
+						printf("\033[6;0HDDC1: %dkHz/%dkHz, Freq=%dkHz\t\tDDC2=%dkHz/%dkHz, Freq=%dkHz     \n",ddc1_info.SampleRate/1000,ddc1_info.Bandwidth/1000,freq/1000,ddc2_info.SampleRate/1000,ddc2_info.Bandwidth/1000,freq2/1000);
+						printf("\033[12;0HDDC2: %s\x1b[0m%c %d+%d  ",DDC2_FFT_Out,BufferIndexArray[DDC2_BufferIndex],MinD2,MaxD2);
+						printf("\033[12;0HDDC2: %s\x1b[0m%c %d+%d  ",DDC2_FFT_Out,BufferIndexArray[DDC2_BufferIndex],MinD2,MaxD2);
+						usleep(10000);
+						int c=getch();
+						if (c==27) end=true;
+					} while (!end);
+								
 					puts("Stopping IF");
 					StopIF(hDevice);
-					puts("Stopping Audio");
-					StopAudio(hDevice,0);
 					puts("Stopping DDC2");
 					StopDDC2(hDevice,0);
 					puts("Stopping DDC1");
@@ -232,6 +275,7 @@ int main(int argc, char **argv){
 			break;
 		}
 		dlclose(API);
+		
     }else printf("Can't open API: error number - %d",errno);
 	return 0;
 }
