@@ -247,7 +247,7 @@ int main(int argc, char **argv){
 						  /* check the value of errno */
 						}
 						if(GetSignalLevel(hDevice,0,NULL,&V_RMS)==0){
-							printf("\033[18;0HCould get signal level[RMS]: %d",errno);
+							printf("\033[9;0HCould get signal level[RMS]: %d",errno);
 						}
 						P_dBm = 10.0*log10(V_RMS*V_RMS*(1000.0/50.0));
 						
