@@ -5,45 +5,33 @@
 #include <unistd.h>
 #include <math.h>
 #include <pthread.h>
-#include <complex.h>
 #include <string.h>
 #include <curses.h>         	// requires curses library
 #include "g31ddcapi.h"
 #include <time.h>
+#include <sys/stat.h>
 //#include <pulse/simple.h>		// requires pulse library
 //#include <pulse/error.h>
 // FFT stuff
-typedef double complex cplx;
 
 // counters
-unsigned long long int TotalAudio=0,TotalDDC1=0,TotalDDC2=0;
 unsigned long long int StartTime;
 
+#define DATAFILE "tdata.txt"
 #define NOC 1024*8
-#define FFT_SIZE NOC/2
-cplx DDC2_FFT_Buff[FFT_SIZE];
-char DDC2_FFT_Out[6*FFT_SIZE+1];
-int MinD2=0,MaxD2=0;
-#define DB_PRECISION 8
-char dB_Char[DB_PRECISION]={'0','4','5','1','2','6','3','7'};
-
-char BufferIndexArray[4]={'/','-','\\','|'};
-
-int DDC2_BufferIndex=0;
-
-void fft(cplx buf[],bool copyback);
-void Translate(cplx fftbuff[],char *outbuff,bool invert,int *min,int *max);
+FILE *fp;
+struct stat filestat;
+float P_dBm,V_RMS;
+int writetofile = 0;
 void DDC2StreamCallback(uint32_t Channel,const float *Buffer,uint32_t NumberOfSamples,uintptr_t UserData) {
 	int i;
-	DDC2_BufferIndex=(DDC2_BufferIndex+1)&3;
-	//TotalDDC2+=NumberOfSamples;
+	Channel = 0;
+	NumberOfSamples = NOC;
 	for (i=0;i<NOC;i++) 
-	DDC2_FFT_Buff[i/2]=Buffer[i]+I*(Buffer[++i]);
-	fft(DDC2_FFT_Buff,true);
-	Translate(DDC2_FFT_Buff,DDC2_FFT_Out,true,&MinD2,&MaxD2);
-	//printf("SL: %d\n",MaxD2);
+	if(writetofile){
+		fprintf(fp,"%0.32f;%0.32f\n",Buffer[i],Buffer[++i]);
+	}
 }
-
 int main(int argc, char **argv){
 	G31DDC_OPEN_DEVICE OpenDevice;
 	G31DDC_CLOSE_DEVICE CloseDevice;
@@ -77,6 +65,8 @@ int main(int argc, char **argv){
 	G3XDDC_DDC_INFO ddc1_info;
 	uint32_t ddc2_type;
 	G3XDDC_DDC_INFO ddc2_info;
+	G31DDC_GET_SIGNAL_LEVEL GetSignalLevel;
+	
 	Callbacks.IFCallback=NULL;
 	Callbacks.DDC1StreamCallback=NULL;
 	Callbacks.DDC1PlaybackStreamCallback=NULL;
@@ -85,6 +75,7 @@ int main(int argc, char **argv){
 	Callbacks.AudioStreamCallback=NULL;
 	Callbacks.AudioPlaybackStreamCallback=NULL;
 	
+	fp=fopen(DATAFILE, "w");
 	int32_t hDevice=0;
 	void *API;
 	struct timespec tt;
@@ -95,6 +86,7 @@ int main(int argc, char **argv){
 			//printf("Частота установлена %d на Гц\n",freq);
 		}
 	}
+	
 	API=dlopen("libg31ddcapi.so",RTLD_LAZY);
 	if (API) {
 		OpenDevice=(G31DDC_OPEN_DEVICE)dlsym(API,"OpenDevice");
@@ -123,6 +115,7 @@ int main(int argc, char **argv){
 		SetCallbacks=(G31DDC_SET_CALLBACKS)dlsym(API,"SetCallbacks");
 		GetDeviceInfo=(G31DDC_GET_DEVICE_INFO)dlsym(API,"GetDeviceInfo");
 		GetDeviceList=(G31DDC_GET_DEVICE_LIST)dlsym(API,"GetDeviceList");
+		GetSignalLevel=(G31DDC_GET_SIGNAL_LEVEL)dlsym(API,"GetSignalLevel");
 		int Count,i;
 		Count	=	GetDeviceList(NULL,0);
 		switch (Count){
@@ -142,6 +135,7 @@ int main(int argc, char **argv){
 				}
 				hDevice=OpenDevice(List[0].SerialNumber);
 				if (hDevice) {
+					free(List);
 					G31DDC_DEVICE_INFO info;
 					G3XDDC_DDC_INFO info1={0},info2={0};
 					GetDeviceInfo(hDevice,&info,sizeof(info));
@@ -238,13 +232,7 @@ int main(int argc, char **argv){
 						return 0;
 					}
 					printf("DDC2 frequency was set %dHz\n\n",setFreq2);
-					//SetDemodulatorMode(hDevice,0,G3XDDC_MODE_CW);
-					//SetDemodulatorFilterBandwidth(hDevice,0,25000);
-					//SetAGC(hDevice,0,TRUE);
-					//SetAGCParams(hDevice,0,0.1,0.1,-20);
-					unsigned long int t = 0;
-					
-					getchar();
+						
 					printf("\E[H\E[2J");
 					printf("\E[H\E[2J");
 					WINDOW *w=initscr();
@@ -254,14 +242,46 @@ int main(int argc, char **argv){
 						
 					bool end=false;
 					do {
-						printf("\033[6;0HDDC1: %dkHz/%dkHz, Freq=%dkHz\t\tDDC2=%dkHz/%dkHz, Freq=%dkHz     \n",ddc1_info.SampleRate/1000,ddc1_info.Bandwidth/1000,freq/1000,ddc2_info.SampleRate/1000,ddc2_info.Bandwidth/1000,freq2/1000);
-						printf("\033[12;0HDDC2: %s\x1b[0m%c %d+%d  ",DDC2_FFT_Out,BufferIndexArray[DDC2_BufferIndex],MinD2,MaxD2);
-						printf("\033[12;0HDDC2: %s\x1b[0m%c %d+%d  ",DDC2_FFT_Out,BufferIndexArray[DDC2_BufferIndex],MinD2,MaxD2);
+						
+						if (stat(DATAFILE, &filestat) == -1) {
+						  /* check the value of errno */
+						}
+						if(GetSignalLevel(hDevice,0,NULL,&V_RMS)==0){
+							printf("\033[18;0HCould get signal level[RMS]: %d",errno);
+						}
+						P_dBm = 10.0*log10(V_RMS*V_RMS*(1000.0/50.0));
+						
+						printf("\033[1;0HDDC1: %dkHz/%dkHz, Freq=%dkHz\t\tDDC2=%dkHz/%dkHz, Freq=%dkHz",ddc1_info.SampleRate/1000,ddc1_info.Bandwidth/1000,freq/1000,ddc2_info.SampleRate/1000,ddc2_info.Bandwidth/1000,freq2/1000);
+						printf("\033[3;0HCurrent signal voltage: %.1f dBm",V_RMS);
+						printf("\033[5;0HCurrent signal level [RMS]: %.1f dBm",P_dBm);
+						printf("\033[7;0HFILESIZE: %.3f Mb",(intmax_t) filestat.st_size/1048576.);
 						usleep(10000);
-						int c=getch();
-						if (c==27) end=true;
+						if (getch() == '\033') { // if the first value is esc
+							getch(); // skip the [
+							switch(getch()) { // the real value
+								case 'A':
+									// code for arrow up
+									writetofile = (writetofile+1)&1;
+									break;
+								case 'B':
+									// code for arrow down
+									end=true;
+									break;
+								case 'C':
+									// code for arrow right
+									freq+=100000;
+									SetDDC1Frequency(hDevice,freq);
+									break;
+								case 'D':
+									// code for arrow left
+									freq-=100000;
+									SetDDC1Frequency(hDevice,freq);
+									break;
+							}
+						}
 					} while (!end);
-								
+					fclose(fp);	
+						
 					puts("Stopping IF");
 					StopIF(hDevice);
 					puts("Stopping DDC2");
@@ -278,48 +298,4 @@ int main(int argc, char **argv){
 		
     }else printf("Can't open API: error number - %d",errno);
 	return 0;
-}
-double window[FFT_SIZE];
-void _fft(cplx buf[], cplx out[],int step){
-	int i;
-	if (step < FFT_SIZE) {
-		_fft(out,buf,step*2);
-		_fft(out+step,buf+step,step*2);
-		for (i=0;i<FFT_SIZE;i+=2*step) {
-			cplx t=cexp(-1*I*M_PI*i/FFT_SIZE)*out[i+step];
-			buf[i/2]=out[i]+t;
-			buf[(i+FFT_SIZE)/2]=out[i]-t;
-		}
-	}
-}
-void fft(cplx buf[],bool copyback){
-	int i;
-	cplx out[FFT_SIZE];
-	for (i=0;i<FFT_SIZE;i++) out[i] = buf[i]*window[i];
-	_fft(buf,out,1);
-	if (copyback) for (i=0;i<FFT_SIZE;i++) buf[i]=out[i];
-}
-void Translate(cplx fftbuff[],char *outbuff,bool invert,int *min,int *max){
-	double maxdB=-100000,mindB=0;
-	int i;
-	for (i=0;i<FFT_SIZE;i++) {
-		double a=10*log10(creal(fftbuff[i])*creal(fftbuff[i])+cimag(fftbuff[i])*cimag(fftbuff[i])+1e-20);
-		fftbuff[i]=a;
-		if (a>maxdB) maxdB=a;
-		if (a<mindB) mindB=a;
-		}
-	maxdB-=mindB;
-	if (invert) for (i=0;i<FFT_SIZE/2;i++) {
-		unsigned int index=(unsigned int)((DB_PRECISION-1)*((creal(fftbuff[i])-mindB)/maxdB));
-		outbuff[6*(FFT_SIZE/2-1-i)+3]=dB_Char[index];
-		index=(unsigned int)((DB_PRECISION-1)*((creal(fftbuff[FFT_SIZE/2+i])-mindB)/maxdB));
-		outbuff[6*(FFT_SIZE-1-i)+3]=dB_Char[index];
-		}
-	else for (i=0;i<FFT_SIZE;i++) {
-		unsigned int index=(unsigned int)((DB_PRECISION-1)*((creal(fftbuff[i])-mindB)/maxdB));
-		if (index>=DB_PRECISION) index=DB_PRECISION-1;
-		outbuff[6*i+3]=dB_Char[index];
-		}
-	*min=(int)mindB;
-	*max=(int)maxdB;
 }
