@@ -18,18 +18,25 @@
 unsigned long long int StartTime;
 
 #define DATAFILE "tdata.txt"
-#define NOC 1024*8
+#define NOC 1024
 FILE *fp;
 struct stat filestat;
 float P_dBm,V_RMS;
 int writetofile = 0;
+double maxdBm=-100000,mindBm=0;
 void DDC2StreamCallback(uint32_t Channel,const float *Buffer,uint32_t NumberOfSamples,uintptr_t UserData) {
-	int i;
+	int i = 0;
 	Channel = 0;
+	double a = 0;
+	maxdBm=-100000,mindBm=0;
 	NumberOfSamples = NOC;
-	for (i=0;i<NOC;i++) 
-	if(writetofile){
-		fprintf(fp,"%0.32f;%0.32f\n",Buffer[i],Buffer[++i]);
+	for (i=0;i<NOC;i+=2) {
+		if(writetofile){
+			fprintf(fp,"%.32f;%.32f\n",Buffer[i],Buffer[i+1]);
+		}
+		a=10*log10((Buffer[i]*Buffer[i]+Buffer[i+1]*Buffer[i+1])/50) + 30;
+		if (a>maxdBm) maxdBm=a;
+		if (a<mindBm) mindBm=a;	
 	}
 }
 int main(int argc, char **argv){
@@ -246,14 +253,11 @@ int main(int argc, char **argv){
 						if (stat(DATAFILE, &filestat) == -1) {
 						  /* check the value of errno */
 						}
-						if(GetSignalLevel(hDevice,0,NULL,&V_RMS)==0){
-							printf("\033[9;0HCould get signal level[RMS]: %d",errno);
-						}
-						P_dBm = 10.0*log10(V_RMS*V_RMS*(1000.0/50.0));
+						GetDDC1Frequency(hDevice,&setFreq);
+						GetDDC2Frequency(hDevice,0,&setFreq2);
 						
-						printf("\033[1;0HDDC1: %dkHz/%dkHz, Freq=%dkHz\t\tDDC2=%dkHz/%dkHz, Freq=%dkHz",ddc1_info.SampleRate/1000,ddc1_info.Bandwidth/1000,freq/1000,ddc2_info.SampleRate/1000,ddc2_info.Bandwidth/1000,freq2/1000);
-						printf("\033[3;0HCurrent signal voltage: %.1f dBm",V_RMS);
-						printf("\033[5;0HCurrent signal level [RMS]: %.1f dBm",P_dBm);
+						printf("\033[1;0HDDC1: %dkHz/%dkHz, Freq=%dkHz\t\tDDC2=%dkHz/%dkHz, Freq=%dkHz",ddc1_info.SampleRate/1000,ddc1_info.Bandwidth/1000,setFreq/1000,ddc2_info.SampleRate/1000,ddc2_info.Bandwidth/1000,setFreq2/1000);
+						printf("\033[5;0HCurrent signal level [RMS]: %d dBm - %d dbm",(int)mindBm,(int)maxdBm);
 						printf("\033[7;0HFILESIZE: %.3f Mb",(intmax_t) filestat.st_size/1048576.);
 						usleep(10000);
 						if (getch() == '\033') { // if the first value is esc
@@ -280,6 +284,7 @@ int main(int argc, char **argv){
 							}
 						}
 					} while (!end);
+					endwin();
 					fclose(fp);	
 						
 					puts("Stopping IF");
