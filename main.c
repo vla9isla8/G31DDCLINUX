@@ -238,6 +238,7 @@ int main(int argc, char **argv){
 						printf("Error of getting frequency of DDC2. Error number = %d\n",errno);
 						return 0;
 					}
+					
 					printf("DDC2 frequency was set %dHz\n\n",setFreq2);
 					
 					show_window(&argc, &argv, &maxdBm, &mindBm);				
