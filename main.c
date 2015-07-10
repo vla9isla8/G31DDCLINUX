@@ -10,6 +10,7 @@
 #include "g31ddcapi.h"
 #include <time.h>
 #include <sys/stat.h>
+
 //#include <pulse/simple.h>		// requires pulse library
 //#include <pulse/error.h>
 // FFT stuff
@@ -238,55 +239,10 @@ int main(int argc, char **argv){
 						return 0;
 					}
 					printf("DDC2 frequency was set %dHz\n\n",setFreq2);
-						
-					printf("\E[H\E[2J");
-					printf("\E[H\E[2J");
-					WINDOW *w=initscr();
-					cbreak();
-					noecho();
-					nodelay(w,TRUE);
-						
-					bool end=false;
-					do {
-						
-						if (stat(DATAFILE, &filestat) == -1) {
-						  /* check the value of errno */
-						}
-						GetDDC1Frequency(hDevice,&setFreq);
-						GetDDC2Frequency(hDevice,0,&setFreq2);
-						
-						printf("\033[1;0HDDC1: %dkHz/%dkHz, Freq=%dkHz\t\tDDC2=%dkHz/%dkHz, Freq=%dkHz",ddc1_info.SampleRate/1000,ddc1_info.Bandwidth/1000,setFreq/1000,ddc2_info.SampleRate/1000,ddc2_info.Bandwidth/1000,setFreq2/1000);
-						printf("\033[5;0HCurrent signal level [RMS]: %d dBm - %d dbm",(int)mindBm,(int)maxdBm);
-						//printf("\033[7;0HCurrent signal level [RMS]: %d dbm",(int)P_dBm);
-						printf("\033[9;0HFILESIZE: %.3f Mb",(intmax_t) filestat.st_size/1048576.);
-						usleep(10000);
-						if (getch() == '\033') { // if the first value is esc
-							getch(); // skip the [
-							switch(getch()) { // the real value
-								case 'A':
-									// code for arrow up
-									writetofile = (writetofile+1)&1;
-									break;
-								case 'B':
-									// code for arrow down
-									end=true;
-									break;
-								case 'C':
-									// code for arrow right
-									freq+=50000;
-									SetDDC1Frequency(hDevice,freq);
-									break;
-								case 'D':
-									// code for arrow left
-									freq-=50000;
-									SetDDC1Frequency(hDevice,freq);
-									break;
-							}
-						}
-					} while (!end);
-					endwin();
+					
+					show_window(&argc, &argv, &maxdBm, &mindBm);				
+					
 					fclose(fp);	
-						
 					
 					puts("Stopping DDC2");
 					StopDDC2(hDevice,0);
