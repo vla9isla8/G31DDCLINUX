@@ -1,30 +1,29 @@
 #include <gtk/gtk.h>
-
-typedef struct{
-	GtkWidget label1;
-	GtkWidget label2;
-	double mindBm;
-	double maxdBm;
-}update_data_struct;
-
-gint delete_event( GtkWidget *widget, GdkEvent  *event, gpointer   data )
+#include <stdlib.h>
+struct update_data_struct{
+	GtkLabel *label1;
+	GtkLabel *label2;
+	double *mindBm;
+	double *maxdBm;
+};
+gint delete_event( GtkWidget *widget, GdkEvent *event, gpointer data)
 {
-    gtk_main_quit ();
+    gtk_main_quit();
     return FALSE;
 }
-gboolean update_data(GtkWidget *widget, gpointer user_data){
+gboolean update_data(gpointer user_data){
 	
 	char out[20];
 	
-	struct update_data_struct* data = (struct update_data_struct*)user_data; 
+	struct update_data_struct *data = user_data; 
 	
-	sprintf(out, "Signal level min: %.0f dBm",data->mindBm);
+	sprintf(out, "Signal level min: %.0f dBm",*(*data).mindBm);
 
-	data->label1 = gtk_label_new (out);
+	gtk_label_set_text_with_mnemonic((*data).label1,out);
 	
-	sprintf(out, "Signal level max: %.0f dBm",data->maxdBm);
+	sprintf(out, "Signal level max: %.0f dBm",*(*data).maxdBm);
 	
-	data->label2 = gtk_label_new (out);
+	gtk_label_set_text_with_mnemonic((*data).label2,out);
 }
 
 int show_window(int argc, char *argv[] , double *maxdBm, double *mindBm ){
@@ -51,7 +50,8 @@ int show_window(int argc, char *argv[] , double *maxdBm, double *mindBm ){
     gtk_window_set_title (GTK_WINDOW (window), "G31DDC");
     
     box1 = gtk_box_new (FALSE, 0);
-	
+	label1	=	gtk_label_new (NULL);
+    label2	=	gtk_label_new (NULL);
 	gtk_container_add (GTK_CONTAINER (window), box1);
 
     gtk_box_pack_start (GTK_BOX(box1), label1,  TRUE, TRUE, 20);
@@ -60,17 +60,16 @@ int show_window(int argc, char *argv[] , double *maxdBm, double *mindBm ){
     
     g_signal_connect (G_OBJECT (window), "delete_event", G_CALLBACK (delete_event), NULL);
     
-    struct update_data_struct* data = (struct update_data_struct*) malloc(sizeof(struct update_data_struct));
+    struct update_data_struct *data	=	(struct update_data_struct*)malloc(sizeof(struct update_data_struct));
+    (*data).label1 = (GtkLabel*)label1;
+    (*data).label2 = (GtkLabel*)label2;
+    (*data).mindBm = mindBm;
+    (*data).maxdBm = maxdBm;
     
-    data->label1 = label1;
-    data->label2 = label2;
-    data->mindBm = mindBm;
-    data->maxdBm = maxdBm;
-    
-    g_timeout_add(200, (GSourceFunc) update_data, (gpointer) data);
+    gint func_ref = g_timeout_add(200, update_data,  (gpointer) data);
     
     
-    update_data(window,data);
+    //update_data(data);
     
     gtk_widget_show(label1);
     
@@ -81,6 +80,8 @@ int show_window(int argc, char *argv[] , double *maxdBm, double *mindBm ){
     gtk_widget_show(window);
 
     gtk_main();
+    
+    g_source_remove (func_ref);
     
     return 0;
     
