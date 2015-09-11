@@ -1,14 +1,14 @@
 all: demo
 
-demo: main.o window.o
-	gcc main.o -lm -ldl -lcurses -lpthread -lstdc++  window.o `pkg-config --libs gtk+-3.0` -o demo  
+demo: main.o  radio.o
+	gcc main.o radio.o -lm -ldl -lcurses -lpthread -lstdc++  `pkg-config --libs gtk+-3.0` -o demo  -g
 	
 main.o: main.c
-	gcc -c main.c
+	gcc `pkg-config --cflags gtk+-3.0` -c main.c -g
 
-window.o: window.c
-	gcc `pkg-config --cflags gtk+-3.0` -c window.c
-	
+radio.o:
+	gcc -c radio.c -g
+
 clean:
 	rm -f demo *.o
 
